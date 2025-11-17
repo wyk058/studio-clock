@@ -814,7 +814,7 @@
         const month = now.getMonth() + 1;
         const d = now.getDate();
         dateEl.textContent =
-          `${y}/${pad2(month)}/${pad2(d)}`;
+          `${y}年${pad2(month)}月${pad2(d)}日`;
         weekdayEl.textContent = weekdayNames[now.getDay()];
 
         // 倒數邏輯
