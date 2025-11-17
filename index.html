@@ -419,6 +419,14 @@
     </div>
 
     <div class="settings-row">
+      <label for="enableRedFlash">啟用紅色警戒閃爍</label>
+      <input id="enableRedFlash" type="checkbox" checked />
+    </div>
+    <div class="settings-inline-note">
+      取消勾選時，只顯示倒數數字，不會紅色閃爍。
+    </div>
+
+    <div class="settings-row">
       <label for="volume">報時音量</label>
       <input id="volume" type="range" min="0" max="100" value="70" />
     </div>
@@ -497,6 +505,7 @@
       const extraMinutesInput = document.getElementById("extraMinutes");
       const volumeInput = document.getElementById("volume");
       const useNtpInput = document.getElementById("useNtp");
+      const enableRedFlashInput = document.getElementById("enableRedFlash");
       const testBeepBtn = document.getElementById("testBeep");
       const saveSettingsBtn = document.getElementById("saveSettings");
       const bgColor1Input = document.getElementById("bgColor1");
@@ -515,6 +524,7 @@
       let countdownMinutesList = [0]; // 每小時哪些分鐘要倒數，預設只有整點
       let countdownVolume = 0.7;
       let useNtp = true;
+      let enableRedFlash = true;
 
       let activeCountdownTarget = null; // {target: Date, minute: Number}
       let lastBeepSecond = null;
@@ -579,6 +589,10 @@
             useNtp = s.useNtp;
             useNtpInput.checked = useNtp;
           }
+          if (typeof s.enableRedFlash === "boolean") {
+            enableRedFlash = s.enableRedFlash;
+            enableRedFlashInput.checked = enableRedFlash;
+          }
           if (typeof s.bg1 === "string") {
             bgColor1Input.value = s.bg1;
             document.documentElement.style.setProperty(
@@ -629,6 +643,7 @@
         }
 
         useNtp = useNtpInput.checked;
+        enableRedFlash = enableRedFlashInput.checked;
 
         const bg1 = bgColor1Input.value || "#020617";
         const bg2 = bgColor2Input.value || "#0f172a";
@@ -647,6 +662,7 @@
           countdownMinutesList,
           volume: countdownVolume,
           useNtp,
+          enableRedFlash,
           bg1,
           bg2,
         };
@@ -696,7 +712,7 @@
         return n.toString().padStart(2, "0");
       }
 
-            async function syncTimeFromInternet() {
+      async function syncTimeFromInternet() {
         if (!useNtp) {
           syncStatusEl.textContent = "時間來源：本機系統時間（未使用網路校時）";
           offsetMs = 0;
@@ -739,7 +755,6 @@
           syncStatusEl.textContent = "時間來源：本機系統時間";
         }
       }
-
 
       function getNow() {
         return new Date(Date.now() + offsetMs);
@@ -799,7 +814,7 @@
         const month = now.getMonth() + 1;
         const d = now.getDate();
         dateEl.textContent =
-           `${y}年${pad2(month)}月${pad2(d)}日`;
+          `${y}/${pad2(month)}/${pad2(d)}`;
         weekdayEl.textContent = weekdayNames[now.getDay()];
 
         // 倒數邏輯
@@ -828,40 +843,51 @@
               beep();
             }
 
-           // 🔴 倒數期間背景紅色閃爍
+            // 🔴 倒數期間背景紅色閃爍
             // 10 秒內：0.5 秒閃爍；5 秒內：0.3 秒閃爍；3 秒內：常亮
-            const nowTs = now.getTime();
-            if (remainSec <= 2 && remainSec > 0) {
-              bodyEl.classList.add("countdown-flash");
-            } else if (remainSec <= 5 && remainSec > 0) {
-              const interval = 200;
-              if (!lastFastFlashToggleTs || nowTs - lastFastFlashToggleTs >= interval) {
-                fastFlashState = !fastFlashState;
-                lastFastFlashToggleTs = nowTs;
-              }
-              if (fastFlashState) {
+            if (enableRedFlash) {
+              const nowTs = now.getTime();
+
+              if (remainSec <= 3 && remainSec > 0) {
+                // 最後 3 秒長亮
                 bodyEl.classList.add("countdown-flash");
+              } else if (remainSec <= 5 && remainSec > 0) {
+                // 3~5 秒：0.3 秒一次
+                const interval = 300;
+                if (!lastFastFlashToggleTs || nowTs - lastFastFlashToggleTs >= interval) {
+                  fastFlashState = !fastFlashState;
+                  lastFastFlashToggleTs = nowTs;
+                }
+                if (fastFlashState) {
+                  bodyEl.classList.add("countdown-flash");
+                } else {
+                  bodyEl.classList.remove("countdown-flash");
+                }
+              } else if (remainSec <= 10 && remainSec > 0) {
+                // 5~10 秒：0.5 秒一次
+                const interval = 500;
+                if (!lastFastFlashToggleTs || nowTs - lastFastFlashToggleTs >= interval) {
+                  fastFlashState = !fastFlashState;
+                  lastFastFlashToggleTs = nowTs;
+                }
+                if (fastFlashState) {
+                  bodyEl.classList.add("countdown-flash");
+                } else {
+                  bodyEl.classList.remove("countdown-flash");
+                }
               } else {
-                bodyEl.classList.remove("countdown-flash");
-              }
-            } else if (remainSec <= 10 && remainSec > 0) {
-              const interval = 500;
-              if (!lastFastFlashToggleTs || nowTs - lastFastFlashToggleTs >= interval) {
-                fastFlashState = !fastFlashState;
-                lastFastFlashToggleTs = nowTs;
-              }
-              if (fastFlashState) {
-                bodyEl.classList.add("countdown-flash");
-              } else {
-                bodyEl.classList.remove("countdown-flash");
+                // 倒數區間外就回到 1 秒一次，或直接關掉
+                lastFastFlashToggleTs = 0;
+                if (remainSec % 2 === 0) {
+                  bodyEl.classList.add("countdown-flash");
+                } else {
+                  bodyEl.classList.remove("countdown-flash");
+                }
               }
             } else {
+              // 沒開紅色警戒，就確保背景不閃
               lastFastFlashToggleTs = 0;
-              if (remainSec % 2 === 0) {
-                bodyEl.classList.add("countdown-flash");
-              } else {
-                bodyEl.classList.remove("countdown-flash");
-              }
+              bodyEl.classList.remove("countdown-flash");
             }
           } else {
             countdownEl.classList.add("hidden");
@@ -893,3 +919,4 @@
   </script>
 </body>
 </html>
+
