@@ -1,0 +1,895 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <title>電台直播時鐘</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg-gradient-start: #020617;
+      --bg-gradient-end: #0f172a;
+      --clock-scale: 1;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+        "Noto Sans TC", sans-serif;
+      background: radial-gradient(circle at top left,
+          rgba(56, 189, 248, 0.16),
+          transparent 55%),
+        radial-gradient(circle at bottom right,
+          rgba(37, 99, 235, 0.22),
+          transparent 60%),
+        linear-gradient(135deg,
+          var(--bg-gradient-start),
+          var(--bg-gradient-end));
+      color: #e5e7eb;
+      overflow: hidden;
+      transition: background 0.25s ease-out;
+    }
+
+    /* 🔴 倒數時用的紅色遮罩，直接蓋在原漸層前面 */
+    .countdown-overlay {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: 0;
+      opacity: 0;
+      background: radial-gradient(circle at center,
+          rgba(248, 113, 113, 1),
+          rgba(127, 29, 29, 1) 60%);
+      transition: opacity 0.12s ease-out;
+    }
+
+    body.countdown-flash .countdown-overlay {
+      opacity: 1;
+    }
+
+    /* 右上角設定按鈕 */
+    .settings-toggle {
+      position: fixed;
+      top: 16px;
+      right: 18px;
+      z-index: 20;
+      padding: 6px 12px;
+      border-radius: 999px;
+      background: rgba(15, 23, 42, 0.88);
+      border: 1px solid rgba(148, 163, 184, 0.6);
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 13px;
+      cursor: pointer;
+      box-shadow:
+        0 14px 30px rgba(0, 0, 0, 0.65),
+        0 0 0 1px rgba(15, 23, 42, 0.9);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      user-select: none;
+    }
+
+    .settings-toggle span {
+      font-size: 15px;
+    }
+
+    /* 設定面板 */
+    .settings-panel {
+      position: fixed;
+      top: 52px;
+      right: 18px;
+      width: 320px;
+      max-width: min(360px, 90vw);
+      padding: 14px 16px 16px;
+      border-radius: 18px;
+      background: rgba(15, 23, 42, 0.96);
+      border: 1px solid rgba(148, 163, 184, 0.6);
+      color: #e5e7eb;
+      box-shadow:
+        0 24px 70px rgba(0, 0, 0, 0.85),
+        0 0 0 1px rgba(15, 23, 42, 0.9);
+      backdrop-filter: blur(18px);
+      -webkit-backdrop-filter: blur(18px);
+      font-size: 13px;
+      display: none;
+      z-index: 15;
+    }
+
+    .settings-panel.open {
+      display: block;
+    }
+
+    .settings-section-title {
+      font-size: 12px;
+      margin-top: 8px;
+      margin-bottom: 4px;
+      font-weight: 600;
+      color: rgba(148, 163, 184, 0.95);
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+    }
+
+    .settings-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-top: 6px;
+    }
+
+    .settings-row label {
+      font-size: 13px;
+      color: rgba(226, 232, 240, 0.95);
+      flex: 1;
+    }
+
+    .settings-row input[type="text"],
+    .settings-row input[type="number"] {
+      flex: 1.1;
+      padding: 4px 8px;
+      border-radius: 8px;
+      border: 1px solid rgba(51, 65, 85, 0.9);
+      background: rgba(15, 23, 42, 0.95);
+      color: #e5e7eb;
+      font-size: 13px;
+    }
+
+    .settings-row input[type="color"] {
+      width: 62px;
+      height: 26px;
+      border-radius: 6px;
+      border: 1px solid rgba(51, 65, 85, 0.9);
+      background: transparent;
+      padding: 0;
+    }
+
+    .settings-row input[type="range"] {
+      flex: 1.1;
+    }
+
+    .settings-inline-note {
+      font-size: 11px;
+      color: rgba(148, 163, 184, 0.9);
+      margin-top: 4px;
+    }
+
+    .settings-row input[type="checkbox"] {
+      margin-left: 4px;
+    }
+
+    .settings-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+      margin-top: 10px;
+    }
+
+    .btn {
+      padding: 4px 10px;
+      border-radius: 999px;
+      border: none;
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 500;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .btn-primary {
+      background: radial-gradient(circle at 10% -20%,
+          rgba(96, 165, 250, 0.9),
+          rgba(37, 99, 235, 0.9));
+      color: #0b1220;
+      box-shadow: 0 0 18px rgba(37, 99, 235, 0.7);
+    }
+
+    .btn-ghost {
+      background: transparent;
+      color: rgba(148, 163, 184, 0.95);
+      border: 1px solid rgba(51, 65, 85, 0.9);
+    }
+
+    /* 時鐘卡片（比例參考你的參考.html，不鎖 4:3） */
+    .clock-wrapper {
+      position: relative;
+      z-index: 1; /* 避開紅色 overlay 之下 */
+      padding: 28px 38px 24px;
+      border-radius: 26px;
+      background: rgba(10, 16, 30, 0.86);
+      box-shadow:
+        0 26px 70px rgba(0, 0, 0, 0.9),
+        0 0 0 1px rgba(255, 255, 255, 0.05);
+      backdrop-filter: blur(22px);
+      -webkit-backdrop-filter: blur(22px);
+      min-width: 520px;
+      max-width: 780px;
+      transform: scale(var(--clock-scale));
+      transform-origin: center center;
+      transition: transform 0.4s ease-out;
+    }
+
+    .clock-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 4px;
+    }
+
+    .logo-label {
+      font-size: 15px;
+      letter-spacing: 0.25em;
+      text-transform: uppercase;
+      color: rgba(156, 163, 175, 0.96);
+    }
+
+    .onair-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 5px 12px;
+      border-radius: 999px;
+      background: rgba(220, 38, 38, 0.9);
+      font-size: 11px;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      color: #fff;
+      box-shadow: 0 0 14px rgba(239, 68, 68, 0.9);
+    }
+
+    .onair-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 999px;
+      background: #fecaca;
+      box-shadow: 0 0 10px rgba(254, 202, 202, 0.9);
+    }
+
+    .time {
+      font-family: "SF Mono", ui-monospace, Menlo, Monaco, Consolas,
+        "Liberation Mono", "Courier New", monospace;
+      font-size: 88px;
+      letter-spacing: 0.08em;
+      font-weight: 600;
+      text-align: left;
+      margin-top: 6px;
+      margin-bottom: 4px;
+      text-shadow:
+        0 0 15px rgba(56, 189, 248, 0.45),
+        0 0 20px rgba(37, 99, 235, 0.7);
+      display: flex;
+      align-items: baseline;
+    }
+
+    .time span {
+      display: inline-block;
+      min-width: 1.1ch;
+    }
+
+    .colon {
+      width: 0.9ch;
+      text-align: center;
+      transition: opacity 0.18s ease-out;
+    }
+
+    .colon.dim {
+      opacity: 0.22;
+    }
+
+    .date-row {
+      display: flex;
+      justify-content: center;
+      gap: 18px;
+      align-items: baseline;
+      margin-top: 6px;
+      font-size: 28px; /* 放大日期字體 */
+      color: rgba(226, 232, 240, 0.94);
+    }
+
+    .weekday {
+      font-size: 20px; /* 放大星期字體 */
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: rgba(148, 163, 184, 0.9);
+    }
+
+    .sub-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-top: 10px;
+      font-size: 13px;
+      color: rgba(148, 163, 184, 0.9);
+    }
+
+    .sync-status {
+      color: rgba(148, 163, 184, 0.95);
+    }
+
+    /* 倒數區塊樣式 */
+    .countdown {
+      margin-top: 8px;
+      padding-top: 10px;
+      border-top: 1px solid rgba(148, 163, 184, 0.2);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-family: "SF Mono", ui-monospace, Menlo, Monaco, Consolas,
+        "Liberation Mono", "Courier New", monospace;
+      transition: opacity 0.25s ease, transform 0.25s ease;
+    }
+
+    .countdown.hidden {
+      opacity: 0;
+      transform: translateY(8px);
+      pointer-events: none;
+    }
+
+    .countdown-label {
+      font-size: 13px;
+      padding: 2px 10px;
+      border-radius: 999px;
+      background: rgba(59, 130, 246, 0.12);
+      border: 1px solid rgba(96, 165, 250, 0.6);
+      color: rgba(191, 219, 254, 0.95);
+      letter-spacing: 0.12em;
+    }
+
+    .countdown-value {
+      font-size: 32px;
+      font-weight: 600;
+      color: #fbbf24;
+      text-shadow: 0 0 16px rgba(251, 191, 36, 0.7);
+    }
+
+    .countdown-hint {
+      font-size: 11px;
+      color: rgba(148, 163, 184, 0.7);
+    }
+
+    @media (max-width: 768px) {
+      :root {
+        --clock-scale: 0.86;
+      }
+
+      .clock-wrapper {
+        min-width: 0;
+        width: min(96vw, 680px);
+        padding: 20px 18px 18px;
+      }
+
+      .time {
+        font-size: 64px;
+      }
+
+      .date-row {
+        font-size: 17px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <!-- 紅色倒數遮罩 -->
+  <div class="countdown-overlay"></div>
+
+  <div class="settings-toggle" id="settingsToggle">
+    <span>⚙️</span> 設定
+  </div>
+
+  <div id="settingsPanel" class="settings-panel">
+    <div class="settings-section-title">BASIC</div>
+    <div class="settings-row">
+      <label for="logoText">左上角標題</label>
+      <input id="logoText" type="text" value="STUDIO CLOCK" />
+    </div>
+    <div class="settings-row">
+      <label for="useNtp">使用網路時間</label>
+      <input id="useNtp" type="checkbox" checked />
+    </div>
+    <p class="settings-inline-note">
+      若網路校時失敗，會自動改用本機系統時間。
+    </p>
+
+    <div class="settings-section-title">COUNTDOWN</div>
+    <div class="settings-row">
+      <label for="countdownSeconds">倒數秒數</label>
+      <input id="countdownSeconds" type="number" min="3" max="120" value="20" />
+    </div>
+    <div class="settings-inline-note">
+      例如輸入 20，表示在目標時間前 20 秒開始倒數。
+    </div>
+
+    <div class="settings-row">
+      <label for="extraMinutes">額外倒數分鐘</label>
+      <input id="extraMinutes" type="text" placeholder="例如：0,5,30" />
+    </div>
+    <div class="settings-inline-note">
+      以逗號分隔每小時的分鐘數；0 代表整點，5 代表 xx:05:00。
+    </div>
+
+    <div class="settings-row">
+      <label for="volume">報時音量</label>
+      <input id="volume" type="range" min="0" max="100" value="70" />
+    </div>
+    <div class="settings-actions">
+      <button id="testBeep" class="btn btn-ghost">測試報時音</button>
+      <button id="saveSettings" class="btn btn-primary">套用</button>
+    </div>
+
+    <div class="settings-section-title">BACKGROUND</div>
+    <div class="settings-row">
+      <label for="bgColor1">漸層顏色 1</label>
+      <input id="bgColor1" type="color" value="#020617" />
+    </div>
+    <div class="settings-row">
+      <label for="bgColor2">漸層顏色 2</label>
+      <input id="bgColor2" type="color" value="#0f172a" />
+    </div>
+    <div class="settings-inline-note">
+      調整背景漸層兩個端點的顏色（整體維持深藍調也可以）。
+    </div>
+  </div>
+
+  <div id="clockWrapper" class="clock-wrapper">
+    <div class="clock-header">
+      <div class="logo-label" id="logoLabel">STUDIO CLOCK</div>
+      <div class="onair-pill">
+        <span class="onair-dot"></span>
+        ON&nbsp;AIR
+      </div>
+    </div>
+
+    <div id="time" class="time">
+      <span id="hh">00</span>
+      <span id="colon1" class="colon">:</span>
+      <span id="mm">00</span>
+      <span id="colon2" class="colon">:</span>
+      <span id="ss">00</span>
+    </div>
+
+    <div class="date-row">
+      <div id="date">0000/00/00</div>
+      <div id="weekday" class="weekday">週一</div>
+    </div>
+
+    <div class="sub-row">
+      <div class="sync-status" id="syncStatus">時間來源：同步中…</div>
+    </div>
+
+    <div id="countdown" class="countdown hidden">
+      <div class="countdown-label">倒數</div>
+      <div id="countdownValue" class="countdown-value">0</div>
+      <div id="countdownHint" class="countdown-hint">距離整點還有 0 秒</div>
+    </div>
+  </div>
+
+  <script>
+    (function () {
+      const hhEl = document.getElementById("hh");
+      const mmEl = document.getElementById("mm");
+      const ssEl = document.getElementById("ss");
+      const colon1 = document.getElementById("colon1");
+      const colon2 = document.getElementById("colon2");
+      const dateEl = document.getElementById("date");
+      const weekdayEl = document.getElementById("weekday");
+      const syncStatusEl = document.getElementById("syncStatus");
+      const logoLabelEl = document.getElementById("logoLabel");
+      const countdownEl = document.getElementById("countdown");
+      const countdownValueEl = document.getElementById("countdownValue");
+      const countdownHintEl = document.getElementById("countdownHint");
+
+      const settingsToggle = document.getElementById("settingsToggle");
+      const settingsPanel = document.getElementById("settingsPanel");
+      const logoTextInput = document.getElementById("logoText");
+      const countdownSecondsInput =
+        document.getElementById("countdownSeconds");
+      const extraMinutesInput = document.getElementById("extraMinutes");
+      const volumeInput = document.getElementById("volume");
+      const useNtpInput = document.getElementById("useNtp");
+      const testBeepBtn = document.getElementById("testBeep");
+      const saveSettingsBtn = document.getElementById("saveSettings");
+      const bgColor1Input = document.getElementById("bgColor1");
+      const bgColor2Input = document.getElementById("bgColor2");
+
+      const weekdayNames = ["週日", "週一", "週二", "週三", "週四", "週五", "週六"];
+
+      const bodyEl = document.body;
+
+      let offsetMs = 0; // serverTime - Date.now()
+      let lastSyncOk = false;
+      let colonBlinkOn = true;
+      let lastSecondForBlink = null;
+
+      let countdownSeconds = 20;
+      let countdownMinutesList = [0]; // 每小時哪些分鐘要倒數，預設只有整點
+      let countdownVolume = 0.7;
+      let useNtp = true;
+
+      let activeCountdownTarget = null; // {target: Date, minute: Number}
+      let lastBeepSecond = null;
+      let fastFlashState = false;
+      let lastFastFlashToggleTs = 0;
+
+      // --- Web Audio 報時音 ---
+      let audioCtx = null;
+      function ensureAudioCtx() {
+        if (!audioCtx) {
+          audioCtx =
+            new (window.AudioContext ||
+              window.webkitAudioContext)();
+        }
+      }
+
+      function beep(durationMs = 160, frequency = 990) {
+        if (countdownVolume <= 0) return;
+        ensureAudioCtx();
+        const ctx = audioCtx;
+        if (!ctx) return;
+
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = "sine";
+        osc.frequency.value = frequency;
+        gain.gain.value = countdownVolume;
+
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+
+        const now = ctx.currentTime;
+        osc.start(now);
+        osc.stop(now + durationMs / 1000);
+      }
+
+      // --- 設定 / localStorage ---
+      const STORAGE_KEY = "studioClockSettings_v2";
+
+      function loadSettings() {
+        try {
+          const raw = localStorage.getItem(STORAGE_KEY);
+          if (!raw) return;
+          const s = JSON.parse(raw);
+
+          if (typeof s.logoText === "string") {
+            logoTextInput.value = s.logoText;
+          }
+          if (typeof s.countdownSeconds === "number") {
+            countdownSeconds = s.countdownSeconds;
+            countdownSecondsInput.value = String(s.countdownSeconds);
+          }
+          if (Array.isArray(s.countdownMinutesList)) {
+            countdownMinutesList = s.countdownMinutesList;
+            extraMinutesInput.value = s.countdownMinutesList.join(",");
+          }
+          if (typeof s.volume === "number") {
+            countdownVolume = s.volume;
+            volumeInput.value = String(Math.round(s.volume * 100));
+          }
+          if (typeof s.useNtp === "boolean") {
+            useNtp = s.useNtp;
+            useNtpInput.checked = useNtp;
+          }
+          if (typeof s.bg1 === "string") {
+            bgColor1Input.value = s.bg1;
+            document.documentElement.style.setProperty(
+              "--bg-gradient-start",
+              s.bg1
+            );
+          }
+          if (typeof s.bg2 === "string") {
+            bgColor2Input.value = s.bg2;
+            document.documentElement.style.setProperty(
+              "--bg-gradient-end",
+              s.bg2
+            );
+          }
+        } catch (e) {
+          console.warn("settings load error", e);
+        }
+      }
+
+      function saveSettings() {
+        const logoText = logoTextInput.value.trim() || "STUDIO CLOCK";
+
+        const secs = parseInt(countdownSecondsInput.value, 10);
+        countdownSeconds = Number.isFinite(secs)
+          ? Math.max(3, Math.min(120, secs))
+          : 20;
+        countdownSecondsInput.value = String(countdownSeconds);
+
+        const volRaw = parseInt(volumeInput.value, 10);
+        countdownVolume = Math.max(
+          0,
+          Math.min(1, (Number.isFinite(volRaw) ? volRaw : 70) / 100)
+        );
+
+        const minutesStr = extraMinutesInput.value || "";
+        const minutes = minutesStr
+          .split(",")
+          .map((v) => v.trim())
+          .filter((v) => v !== "")
+          .map((v) => parseInt(v, 10))
+          .filter((v) => Number.isFinite(v) && v >= 0 && v < 60);
+        if (minutes.length === 0) {
+          countdownMinutesList = [0];
+        } else {
+          // 去重 + 排序
+          const set = new Set(minutes);
+          countdownMinutesList = Array.from(set).sort((a, b) => a - b);
+        }
+
+        useNtp = useNtpInput.checked;
+
+        const bg1 = bgColor1Input.value || "#020617";
+        const bg2 = bgColor2Input.value || "#0f172a";
+        document.documentElement.style.setProperty(
+          "--bg-gradient-start",
+          bg1
+        );
+        document.documentElement.style.setProperty(
+          "--bg-gradient-end",
+          bg2
+        );
+
+        const payload = {
+          logoText,
+          countdownSeconds,
+          countdownMinutesList,
+          volume: countdownVolume,
+          useNtp,
+          bg1,
+          bg2,
+        };
+
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+        applySettingsToUI();
+      }
+
+      function applySettingsToUI() {
+        logoLabelEl.textContent =
+          logoTextInput.value.trim() || "STUDIO CLOCK";
+      }
+
+      // UI event
+      settingsToggle.addEventListener("click", () => {
+        settingsPanel.classList.toggle("open");
+      });
+
+      saveSettingsBtn.addEventListener("click", () => {
+        saveSettings();
+      });
+
+      testBeepBtn.addEventListener("click", () => {
+        // 簡單連續三聲測試
+        ensureAudioCtx();
+        beep(140, 950);
+        setTimeout(() => beep(140, 950), 220);
+        setTimeout(() => beep(200, 950), 440);
+      });
+
+      // 漸層色即時套用
+      bgColor1Input.addEventListener("input", () => {
+        document.documentElement.style.setProperty(
+          "--bg-gradient-start",
+          bgColor1Input.value
+        );
+      });
+      bgColor2Input.addEventListener("input", () => {
+        document.documentElement.style.setProperty(
+          "--bg-gradient-end",
+          bgColor2Input.value
+        );
+      });
+
+      // --- 時間 & 校時 ---
+      function pad2(n) {
+        return n.toString().padStart(2, "0");
+      }
+
+            async function syncTimeFromInternet() {
+        if (!useNtp) {
+          syncStatusEl.textContent = "時間來源：本機系統時間（未使用網路校時）";
+          offsetMs = 0;
+          lastSyncOk = false;
+          return;
+        }
+
+        try {
+          syncStatusEl.textContent = "時間來源：嘗試網路校時中…";
+
+          // 改用 timeapi.io，固定抓 Asia/Taipei 的現在時間
+          const res = await fetch(
+            "https://timeapi.io/api/time/current/zone?timeZone=Asia/Taipei",
+            {
+              cache: "no-store",
+            }
+          );
+
+          if (!res.ok) {
+            throw new Error("Bad status");
+          }
+
+          const data = await res.json();
+
+          // timeapi.io 的 dateTime 是該時區的「當地時間」字串
+          // 直接 new Date(...)，在瀏覽器端會當成本機當地時間解析
+          const serverTs = new Date(data.dateTime).getTime();
+
+          // 和本機 Date.now() 的差值，之後一律用 getNow() 取時間
+          offsetMs = serverTs - Date.now();
+          lastSyncOk = true;
+
+          const region = data.timeZone || "Asia/Taipei";
+          syncStatusEl.textContent =
+            "時間來源：網路標準時間（" + region + "）";
+        } catch (e) {
+          console.warn("sync failed", e);
+          offsetMs = 0;
+          lastSyncOk = false;
+          syncStatusEl.textContent = "時間來源：本機系統時間";
+        }
+      }
+
+
+      function getNow() {
+        return new Date(Date.now() + offsetMs);
+      }
+
+      // 找出下一個倒數目標
+      function computeNextTarget(now) {
+        let bestDiff = Infinity;
+        let bestMinute = null;
+        let bestTarget = null;
+
+        for (const m of countdownMinutesList) {
+          const candidate = new Date(now.getTime());
+          candidate.setSeconds(0, 0);
+          candidate.setMinutes(m);
+
+          if (candidate <= now) {
+            candidate.setHours(candidate.getHours() + 1);
+          }
+
+          const diff = candidate.getTime() - now.getTime();
+          if (diff < bestDiff) {
+            bestDiff = diff;
+            bestMinute = m;
+            bestTarget = candidate;
+          }
+        }
+
+        return { target: bestTarget, minute: bestMinute, diffMs: bestDiff };
+      }
+
+      function updateDisplay() {
+        const now = getNow();
+
+        const h = now.getHours();
+        const m = now.getMinutes();
+        const s = now.getSeconds();
+
+        hhEl.textContent = pad2(h);
+        mmEl.textContent = pad2(m);
+        ssEl.textContent = pad2(s);
+
+        const currentSeconds = Math.floor(now.getTime() / 1000);
+        if (currentSeconds !== lastSecondForBlink) {
+          lastSecondForBlink = currentSeconds;
+          colonBlinkOn = !colonBlinkOn;
+          if (colonBlinkOn) {
+            colon1.classList.remove("dim");
+            colon2.classList.remove("dim");
+          } else {
+            colon1.classList.add("dim");
+            colon2.classList.add("dim");
+          }
+        }
+
+        const y = now.getFullYear();
+        const month = now.getMonth() + 1;
+        const d = now.getDate();
+        dateEl.textContent =
+           `${y}年${pad2(month)}月${pad2(d)}日`;
+        weekdayEl.textContent = weekdayNames[now.getDay()];
+
+        // 倒數邏輯
+        const next = computeNextTarget(now);
+        const preWindowMs = countdownSeconds * 1000;
+
+        if (next.diffMs <= preWindowMs) {
+          activeCountdownTarget = { target: next.target, minute: next.minute };
+          const remainSec = Math.ceil(next.diffMs / 1000);
+
+          if (remainSec > 0) {
+            countdownEl.classList.remove("hidden");
+            countdownValueEl.textContent = remainSec;
+
+            if (next.minute === 0) {
+              countdownHintEl.textContent =
+                `距離整點還有 ${remainSec} 秒`;
+            } else {
+              countdownHintEl.textContent =
+                `距離廣告開口還有 ${remainSec} 秒`;
+            }
+
+            // 🔔 最後 5 秒報時
+            if (remainSec <= 5 && remainSec > 0 && lastBeepSecond !== remainSec) {
+              lastBeepSecond = remainSec;
+              beep();
+            }
+
+           // 🔴 倒數期間背景紅色閃爍
+            // 10 秒內：0.5 秒閃爍；5 秒內：0.3 秒閃爍；3 秒內：常亮
+            const nowTs = now.getTime();
+            if (remainSec <= 2 && remainSec > 0) {
+              bodyEl.classList.add("countdown-flash");
+            } else if (remainSec <= 5 && remainSec > 0) {
+              const interval = 200;
+              if (!lastFastFlashToggleTs || nowTs - lastFastFlashToggleTs >= interval) {
+                fastFlashState = !fastFlashState;
+                lastFastFlashToggleTs = nowTs;
+              }
+              if (fastFlashState) {
+                bodyEl.classList.add("countdown-flash");
+              } else {
+                bodyEl.classList.remove("countdown-flash");
+              }
+            } else if (remainSec <= 10 && remainSec > 0) {
+              const interval = 500;
+              if (!lastFastFlashToggleTs || nowTs - lastFastFlashToggleTs >= interval) {
+                fastFlashState = !fastFlashState;
+                lastFastFlashToggleTs = nowTs;
+              }
+              if (fastFlashState) {
+                bodyEl.classList.add("countdown-flash");
+              } else {
+                bodyEl.classList.remove("countdown-flash");
+              }
+            } else {
+              lastFastFlashToggleTs = 0;
+              if (remainSec % 2 === 0) {
+                bodyEl.classList.add("countdown-flash");
+              } else {
+                bodyEl.classList.remove("countdown-flash");
+              }
+            }
+          } else {
+            countdownEl.classList.add("hidden");
+            activeCountdownTarget = null;
+            lastBeepSecond = null;
+            lastFastFlashToggleTs = 0;
+            bodyEl.classList.remove("countdown-flash");
+          }
+        } else {
+          countdownEl.classList.add("hidden");
+          activeCountdownTarget = null;
+          lastBeepSecond = null;
+          lastFastFlashToggleTs = 0;
+          bodyEl.classList.remove("countdown-flash");
+        }
+      }
+
+      // 初始化
+      loadSettings();
+      applySettingsToUI();
+
+      updateDisplay();
+      setInterval(updateDisplay, 250); // 0.25 秒更新一次畫面
+
+      // 第一次校時 + 每 5 分鐘校時一次
+      syncTimeFromInternet();
+      setInterval(syncTimeFromInternet, 5 * 60 * 1000);
+    })();
+  </script>
+</body>
+</html>
